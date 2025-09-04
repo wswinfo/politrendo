@@ -27,19 +27,22 @@ export default function Politrendo() {
   // Auth State
   useEffect(() => {
     checkUser();
-    loadVorgaenge();
-    
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user || null);
       if (session?.user) {
         loadOrCreateProfile(session.user);
       }
     });
-    
     return () => {
       authListener?.subscription?.unsubscribe();
     };
-  }, [filter]);
+  }, []);
+
+  // Load data only when authenticated and filter changes
+  useEffect(() => {
+    if (!user) return;
+    loadVorgaenge();
+  }, [user, filter]);
   
   const checkUser = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -269,6 +272,11 @@ export default function Politrendo() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Redirect to home if logged in while on /login
+  useEffect(() => {
+    if (user && location.pathname === '/login') navigate('/');
+  }, [user, location.pathname, navigate]);
+
   const handleVote = async (vorgangId, voteType) => {
     if (!user) {
       navigate('/login');
@@ -287,28 +295,30 @@ export default function Politrendo() {
               <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                 Politrendo
               </h1>
-              <nav className="hidden md:flex space-x-6">
-                <button
-                  onClick={() => setActiveView('timeline')}
-                  className={`px-3 py-1 rounded-lg transition-colors ${
-                    activeView === 'timeline' 
-                      ? 'bg-blue-100 text-blue-700' 
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  Timeline
-                </button>
-                <button
-                  onClick={() => setActiveView('stats')}
-                  className={`px-3 py-1 rounded-lg transition-colors ${
-                    activeView === 'stats' 
-                      ? 'bg-blue-100 text-blue-700' 
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  Statistiken
-                </button>
-              </nav>
+              {user && (
+                <nav className="hidden md:flex space-x-6">
+                  <button
+                    onClick={() => setActiveView('timeline')}
+                    className={`px-3 py-1 rounded-lg transition-colors ${
+                      activeView === 'timeline'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Timeline
+                  </button>
+                  <button
+                    onClick={() => setActiveView('stats')}
+                    className={`px-3 py-1 rounded-lg transition-colors ${
+                      activeView === 'stats'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Statistiken
+                  </button>
+                </nav>
+              )}
             </div>
             
             <div className="flex items-center space-x-4">
@@ -341,7 +351,7 @@ export default function Politrendo() {
       
       {/* Hauptinhalt */}
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {location.pathname === '/login' ? (
+        {!user ? (
           <LoginPage />
         ) : (
           <>
