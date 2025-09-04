@@ -80,92 +80,116 @@ export default function Politrendo() {
       const from = currentPage * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
       
-      // Basis-Query für Vorgänge mit ihren aktuellen Positionen
-      let query = supabase
+      // DEBUG: Erst mal nur die Basis-Tabelle abfragen
+      console.log('Lade Vorgänge von Supabase...');
+      
+      // Vereinfachte Query ohne JOINs zum Testen
+      let simpleQuery = supabase
         .from('vorgang')
-        .select(`
-          *,
-          vorgangsposition!inner (
-            id,
-            titel,
-            datum,
-            dokumentart,
-            aktivitaet_anzahl,
-            vorgangsposition,
-            zuordnung,
-            gang,
-            aktualisiert,
-            vorgangsposition_fundstelle (
-              pdf_url,
-              dokumentnummer,
-              datum,
-              dokumentart,
-              herausgeber
-            ),
-            vorgangsposition_ueberweisung (
-              ausschuss,
-              ausschuss_kuerzel,
-              federfuehrung
-            ),
-            vorgangsposition_urheber (
-              bezeichnung,
-              titel,
-              einbringer
-            )
-          ),
-          vorgang_deskriptor (
-            name,
-            typ
-          ),
-          vorgang_sachgebiet (
-            sachgebiet
-          ),
-          vorgang_initiative (
-            initiative
-          )
-        `)
+        .select('*')
         .order('aktualisiert', { ascending: false })
         .range(from, to);
       
-      // Filter anwenden
-      if (filter !== 'all') {
-        if (filter === 'gesetzgebung') {
-          query = query.eq('vorgangstyp', 'Gesetzgebung');
-        } else if (filter === 'antrag') {
-          query = query.ilike('vorgangstyp', '%Antrag%');
-        } else if (filter === 'anfrage') {
-          query = query.or('vorgangstyp.ilike.%Anfrage%,vorgangstyp.ilike.%Interpellation%');
-        } else if (filter === 'eu') {
-          query = query.or('vorgangstyp.ilike.%EU%,vorgangstyp.ilike.%Europa%');
-        }
-      }
+      const { data: simpleData, error: simpleError } = await simpleQuery;
       
-      const { data, error, count } = await query;
+      console.log('Simple Query Result:', { simpleData, simpleError });
       
-      if (error) throw error;
-      
-      // Verarbeite die Daten und finde die neueste Vorgangsposition für jeden Vorgang
-      const processedData = data?.map(vorgang => {
-        // Sortiere Vorgangspositionen nach Datum und nimm die neueste
-        const sortedPositions = vorgang.vorgangsposition?.sort((a, b) => 
-          new Date(b.datum || b.aktualisiert) - new Date(a.datum || a.aktualisiert)
-        ) || [];
+      // Falls die einfache Query funktioniert, versuche die komplexe
+      if (simpleData && simpleData.length > 0) {
+        // Komplexe Query mit JOINs
+        let query = supabase
+          .from('vorgang')
+          .select(`
+            *,
+            vorgangsposition (
+              id,
+              titel,
+              datum,
+              dokumentart,
+              aktivitaet_anzahl,
+              vorgangsposition,
+              zuordnung,
+              gang,
+              aktualisiert
+            )
+          `)
+          .order('aktualisiert', { ascending: false })
+          .range(from, to);
         
-        return {
-          ...vorgang,
-          aktuellePosition: sortedPositions[0] || null,
-          allePositionen: sortedPositions
-        };
-      }) || [];
-      
-      if (loadMore) {
-        setVorgaenge(prev => [...prev, ...processedData]);
+        const { data, error } = await query;
+        console.log('Complex Query Result:', { data, error });
+        
+        if (error) {
+          console.error('Complex query failed, using simple data:', error);
+          // Nutze simple data als Fallback
+          const processedSimpleData = simpleData.map(vorgang => ({
+            ...vorgang,
+            aktuellePosition: null,
+            allePositionen: []
+          }));
+          
+          if (loadMore) {
+            setVorgaenge(prev => [...prev, ...processedSimpleData]);
+          } else {
+            setVorgaenge(processedSimpleData);
+          }
+        } else {
+          // Verarbeite die komplexen Daten
+          const processedData = data?.map(vorgang => {
+            const sortedPositions = vorgang.vorgangsposition?.sort((a, b) => 
+              new Date(b.datum || b.aktualisiert) - new Date(a.datum || a.aktualisiert)
+            ) || [];
+            
+            return {
+              ...vorgang,
+              aktuellePosition: sortedPositions[0] || null,
+              allePositionen: sortedPositions
+            };
+          }) || [];
+          
+          if (loadMore) {
+            setVorgaenge(prev => [...prev, ...processedData]);
+          } else {
+            setVorgaenge(processedData);
+          }
+        }
+      } else if (simpleError) {
+        console.error('Supabase Error:', simpleError);
+        throw simpleError;
       } else {
-        setVorgaenge(processedData);
+        console.log('Keine Daten in der Tabelle gefunden');
+        // Zeige Demo-Daten als Fallback
+        const demoData = [
+          {
+            id: 'demo-1',
+            titel: 'DEMO: Gesetz zur Modernisierung des Gesundheitssystems',
+            vorgangstyp: 'Gesetzgebung',
+            beratungsstand: 'In Beratung',
+            wahlperiode: 20,
+            datum: new Date().toISOString(),
+            abstract: 'Dies ist ein Demo-Vorgang. Bitte prüfen Sie Ihre Supabase-Datenbank.',
+            aktualisiert: new Date().toISOString(),
+            aktuellePosition: null,
+            allePositionen: []
+          },
+          {
+            id: 'demo-2',
+            titel: 'DEMO: Bitte Datenbank prüfen',
+            vorgangstyp: 'Info',
+            beratungsstand: 'Keine Daten gefunden',
+            wahlperiode: 20,
+            datum: new Date().toISOString(),
+            abstract: 'Es wurden keine echten Daten gefunden. Mögliche Gründe: 1) Tabelle "vorgang" ist leer, 2) RLS ist aktiv und blockiert, 3) Tabelle existiert nicht.',
+            aktualisiert: new Date().toISOString(),
+            aktuellePosition: null,
+            allePositionen: []
+          }
+        ];
+        setVorgaenge(demoData);
       }
       
       // Prüfe ob es mehr Daten gibt
-      if (processedData.length < PAGE_SIZE) {
+      if ((simpleData?.length || 0) < PAGE_SIZE) {
         setHasMore(false);
       }
       
@@ -173,7 +197,19 @@ export default function Politrendo() {
       
     } catch (error) {
       console.error('Error loading Vorgänge:', error);
-      setVorgaenge([]);
+      // Zeige Fehler-Info
+      setVorgaenge([{
+        id: 'error-1',
+        titel: 'FEHLER: Datenbankverbindung fehlgeschlagen',
+        vorgangstyp: 'Fehler',
+        beratungsstand: error.message,
+        wahlperiode: 0,
+        datum: new Date().toISOString(),
+        abstract: `Fehler: ${error.message}. Bitte prüfen Sie: 1) Supabase URL und Key korrekt? 2) Tabelle "vorgang" existiert? 3) RLS Policies aktiv?`,
+        aktualisiert: new Date().toISOString(),
+        aktuellePosition: null,
+        allePositionen: []
+      }]);
     } finally {
       setLoading(false);
       setLoadingMore(false);
