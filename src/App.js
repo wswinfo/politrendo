@@ -3,9 +3,15 @@ import { createClient } from '@supabase/supabase-js';
 import { Calendar, MessageCircle, ThumbsUp, ThumbsDown, User, LogIn, LogOut, FileText, Users, Activity, AlertCircle, CheckCircle, XCircle, Send, ChevronRight, Clock, Building, Gavel, ExternalLink, BookOpen, Loader } from 'lucide-react';
 
 // Supabase Client Setup
-const supabaseUrl = 'https://oqqmfkqlcdynxgdefzfw.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9xcW1ma3FsY2R5bnhnZGVmemZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI4NDQ3NTYsImV4cCI6MjA2ODQyMDc1Nn0.x_WQb3NjDWl120ZogADav3JfdHORzUWUAxZ1jEkooQk';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const isDev = process.env.NODE_ENV !== 'production';
+const debugLog = (...args) => { if (isDev) console.log(...args); };
+
+const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('Missing Supabase configuration. Set REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY.');
+}
+const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '');
 
 // Hauptkomponente
 export default function Politrendo() {
@@ -81,19 +87,31 @@ export default function Politrendo() {
       const to = from + PAGE_SIZE - 1;
       
       // DEBUG: Erst mal nur die Basis-Tabelle abfragen
-      console.log('Lade Vorgänge von Supabase...');
-      
+      debugLog('Lade Vorgänge von Supabase...');
+
       // Vereinfachte Query ohne JOINs zum Testen
       let simpleQuery = supabase
         .from('vorgang')
-        .select('*')
+        .select('*');
+
+      if (filter === 'gesetzgebung') {
+        simpleQuery = simpleQuery.ilike('vorgangstyp', '%Gesetz%');
+      } else if (filter === 'antrag') {
+        simpleQuery = simpleQuery.ilike('vorgangstyp', '%Antrag%');
+      } else if (filter === 'anfrage') {
+        simpleQuery = simpleQuery.ilike('vorgangstyp', '%Anfrage%');
+      } else if (filter === 'eu') {
+        simpleQuery = simpleQuery.ilike('vorgangstyp', '%EU%');
+      }
+
+      simpleQuery = simpleQuery
         .order('aktualisiert', { ascending: false })
         .range(from, to);
-      
+
       const { data: simpleData, error: simpleError } = await simpleQuery;
-      
-      console.log('Simple Query Result:', { simpleData, simpleError });
-      
+
+      debugLog('Simple Query Result:', { simpleData, simpleError });
+
       // Falls die einfache Query funktioniert, versuche die komplexe
       if (simpleData && simpleData.length > 0) {
         // Komplexe Query mit JOINs
@@ -110,14 +128,31 @@ export default function Politrendo() {
               vorgangsposition,
               zuordnung,
               gang,
-              aktualisiert
-            )
-          `)
+              aktualisiert,
+              vorgangsposition_fundstelle (*),
+              vorgangsposition_ueberweisung (*)
+            ),
+            vorgang_initiative (*),
+            vorgang_sachgebiet (*),
+            vorgang_deskriptor (*)
+          `);
+
+        if (filter === 'gesetzgebung') {
+          query = query.ilike('vorgangstyp', '%Gesetz%');
+        } else if (filter === 'antrag') {
+          query = query.ilike('vorgangstyp', '%Antrag%');
+        } else if (filter === 'anfrage') {
+          query = query.ilike('vorgangstyp', '%Anfrage%');
+        } else if (filter === 'eu') {
+          query = query.ilike('vorgangstyp', '%EU%');
+        }
+
+        query = query
           .order('aktualisiert', { ascending: false })
           .range(from, to);
-        
+
         const { data, error } = await query;
-        console.log('Complex Query Result:', { data, error });
+        debugLog('Complex Query Result:', { data, error });
         
         if (error) {
           console.error('Complex query failed, using simple data:', error);
@@ -157,7 +192,7 @@ export default function Politrendo() {
         console.error('Supabase Error:', simpleError);
         throw simpleError;
       } else {
-        console.log('Keine Daten in der Tabelle gefunden');
+        debugLog('Keine Daten in der Tabelle gefunden');
         // Zeige Demo-Daten als Fallback
         const demoData = [
           {
@@ -235,7 +270,7 @@ export default function Politrendo() {
     return () => {
       if (observerRef.current) observerRef.current.disconnect();
     };
-  }, [loading, loadingMore, hasMore]);
+  }, [loading, loadingMore, hasMore, vorgaenge]);
   
   const handleVote = async (vorgangId, voteType) => {
     if (!user) {
@@ -244,7 +279,7 @@ export default function Politrendo() {
     }
     
     // Hier könntest du eine eigene Voting-Tabelle für Vorgänge implementieren
-    console.log('Vote for Vorgang:', vorgangId, voteType);
+    debugLog('Vote for Vorgang:', vorgangId, voteType);
   };
   
   return (
