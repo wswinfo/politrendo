@@ -1,17 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { createClient } from '@supabase/supabase-js';
 import { Calendar, MessageCircle, ThumbsUp, ThumbsDown, User, LogIn, LogOut, FileText, Users, Activity, AlertCircle, CheckCircle, XCircle, Send, ChevronRight, Clock, Building, Gavel, ExternalLink, BookOpen, Loader } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import LoginPage from './pages/LoginPage';
+import { supabase } from './lib/supabase';
 
 // Supabase Client Setup
 const isDev = process.env.NODE_ENV !== 'production';
 const debugLog = (...args) => { if (isDev) console.log(...args); };
-
-const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
-const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Missing Supabase configuration. Set REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY.');
-}
-const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '');
 
 // Hauptkomponente
 export default function Politrendo() {
@@ -21,7 +16,6 @@ export default function Politrendo() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [activeView, setActiveView] = useState('timeline');
   const [selectedVorgang, setSelectedVorgang] = useState(null);
-  const [showAuthModal, setShowAuthModal] = useState(false);
   const [filter, setFilter] = useState('all');
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(0);
@@ -272,13 +266,14 @@ export default function Politrendo() {
     };
   }, [loading, loadingMore, hasMore, vorgaenge]);
   
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const handleVote = async (vorgangId, voteType) => {
     if (!user) {
-      setShowAuthModal(true);
+      navigate('/login');
       return;
     }
-    
-    // Hier könntest du eine eigene Voting-Tabelle für Vorgänge implementieren
     debugLog('Vote for Vorgang:', vorgangId, voteType);
   };
   
@@ -331,13 +326,13 @@ export default function Politrendo() {
                   </button>
                 </>
               ) : (
-                <button
-                  onClick={() => setShowAuthModal(true)}
+                <Link
+                  to="/login"
                   className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
                 >
                   <LogIn className="h-4 w-4" />
                   <span>Anmelden</span>
-                </button>
+                </Link>
               )}
             </div>
           </div>
@@ -346,140 +341,141 @@ export default function Politrendo() {
       
       {/* Hauptinhalt */}
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* Stats Banner */}
-        {activeView === 'stats' && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-            <div className="bg-white rounded-xl p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Aktive Vorgänge</p>
-                  <p className="text-2xl font-bold">{vorgaenge.length}</p>
-                </div>
-                <Activity className="h-8 w-8 text-blue-500" />
-              </div>
-            </div>
-            <div className="bg-white rounded-xl p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Gesetzgebung</p>
-                  <p className="text-2xl font-bold">
-                    {vorgaenge.filter(v => v.vorgangstyp === 'Gesetzgebung').length}
-                  </p>
-                </div>
-                <Gavel className="h-8 w-8 text-purple-500" />
-              </div>
-            </div>
-            <div className="bg-white rounded-xl p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Anträge</p>
-                  <p className="text-2xl font-bold">
-                    {vorgaenge.filter(v => v.vorgangstyp?.includes('Antrag')).length}
-                  </p>
-                </div>
-                <FileText className="h-8 w-8 text-green-500" />
-              </div>
-            </div>
-            <div className="bg-white rounded-xl p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Wahlperiode</p>
-                  <p className="text-2xl font-bold">20</p>
-                </div>
-                <Building className="h-8 w-8 text-orange-500" />
-              </div>
-            </div>
-          </div>
-        )}
-        
-        {/* Filter Bar */}
-        <div className="mb-6 flex flex-wrap items-center gap-2">
-          <span className="text-sm text-gray-600 mr-2">Filter:</span>
-          {['all', 'gesetzgebung', 'antrag', 'anfrage', 'eu'].map(filterType => (
-            <button
-              key={filterType}
-              onClick={() => {
-                setFilter(filterType);
-                setVorgaenge([]);
-                setPage(0);
-                setHasMore(true);
-              }}
-              className={`px-3 py-1 rounded-full text-sm transition-colors ${
-                filter === filterType
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-gray-700 hover:bg-gray-100'
-              }`}
-            >
-              {filterType === 'all' ? 'Alle' : 
-               filterType === 'gesetzgebung' ? 'Gesetzgebung' :
-               filterType === 'antrag' ? 'Anträge' :
-               filterType === 'anfrage' ? 'Anfragen' : 'EU-Vorlagen'}
-            </button>
-          ))}
-        </div>
-        
-        {/* Timeline/Content */}
-        {loading && vorgaenge.length === 0 ? (
-          <div className="flex justify-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          </div>
+        {location.pathname === '/login' ? (
+          <LoginPage />
         ) : (
-          <div className="space-y-6">
-            {vorgaenge.length === 0 ? (
-              <div className="text-center py-12 bg-white rounded-xl">
-                <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600">Keine Vorgänge gefunden.</p>
+          <>
+            {/* Stats Banner */}
+            {activeView === 'stats' && (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                <div className="bg-white rounded-xl p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600">Aktive Vorgänge</p>
+                      <p className="text-2xl font-bold">{vorgaenge.length}</p>
+                    </div>
+                    <Activity className="h-8 w-8 text-blue-500" />
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600">Gesetzgebung</p>
+                      <p className="text-2xl font-bold">
+                        {vorgaenge.filter(v => v.vorgangstyp === 'Gesetzgebung').length}
+                      </p>
+                    </div>
+                    <Gavel className="h-8 w-8 text-purple-500" />
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600">Anträge</p>
+                      <p className="text-2xl font-bold">
+                        {vorgaenge.filter(v => v.vorgangstyp?.includes('Antrag')).length}
+                      </p>
+                    </div>
+                    <FileText className="h-8 w-8 text-green-500" />
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600">Wahlperiode</p>
+                      <p className="text-2xl font-bold">20</p>
+                    </div>
+                    <Building className="h-8 w-8 text-orange-500" />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Filter Bar */}
+            <div className="mb-6 flex flex-wrap items-center gap-2">
+              <span className="text-sm text-gray-600 mr-2">Filter:</span>
+              {['all', 'gesetzgebung', 'antrag', 'anfrage', 'eu'].map(filterType => (
+                <button
+                  key={filterType}
+                  onClick={() => {
+                    setFilter(filterType);
+                    setVorgaenge([]);
+                    setPage(0);
+                    setHasMore(true);
+                  }}
+                  className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                    filter === filterType
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  {filterType === 'all' ? 'Alle' :
+                   filterType === 'gesetzgebung' ? 'Gesetzgebung' :
+                   filterType === 'antrag' ? 'Anträge' :
+                   filterType === 'anfrage' ? 'Anfragen' : 'EU-Vorlagen'}
+                </button>
+              ))}
+            </div>
+
+            {/* Timeline/Content */}
+            {loading && vorgaenge.length === 0 ? (
+              <div className="flex justify-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
               </div>
             ) : (
-              <>
-                {vorgaenge.map((vorgang, index) => {
-                  const isLast = index === vorgaenge.length - 1;
-                  return (
-                    <div
-                      key={vorgang.id}
-                      ref={isLast ? lastVorgangElementRef : null}
-                    >
-                      <VorgangCard
-                        vorgang={vorgang}
-                        onVote={handleVote}
-                        onSelect={() => setSelectedVorgang(vorgang)}
-                        user={user}
-                      />
-                    </div>
-                  );
-                })}
-                
-                {loadingMore && (
-                  <div className="flex justify-center py-8">
-                    <Loader className="h-8 w-8 animate-spin text-blue-600" />
+              <div className="space-y-6">
+                {vorgaenge.length === 0 ? (
+                  <div className="text-center py-12 bg-white rounded-xl">
+                    <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-600">Keine Vorgänge gefunden.</p>
                   </div>
+                ) : (
+                  <>
+                    {vorgaenge.map((vorgang, index) => {
+                      const isLast = index === vorgaenge.length - 1;
+                      return (
+                        <div
+                          key={vorgang.id}
+                          ref={isLast ? lastVorgangElementRef : null}
+                        >
+                          <VorgangCard
+                            vorgang={vorgang}
+                            onVote={handleVote}
+                            onSelect={() => setSelectedVorgang(vorgang)}
+                            user={user}
+                          />
+                        </div>
+                      );
+                    })}
+
+                    {loadingMore && (
+                      <div className="flex justify-center py-8">
+                        <Loader className="h-8 w-8 animate-spin text-blue-600" />
+                      </div>
+                    )}
+
+                    {!hasMore && vorgaenge.length > 0 && (
+                      <div className="text-center py-4 text-gray-500">
+                        Keine weiteren Vorgänge
+                      </div>
+                    )}
+                  </>
                 )}
-                
-                {!hasMore && vorgaenge.length > 0 && (
-                  <div className="text-center py-4 text-gray-500">
-                    Keine weiteren Vorgänge
-                  </div>
-                )}
-              </>
+              </div>
             )}
-          </div>
+
+            {/* Detail Modal */}
+            {selectedVorgang && (
+              <VorgangDetailModal
+                vorgang={selectedVorgang}
+                onClose={() => setSelectedVorgang(null)}
+                user={user}
+                onVote={handleVote}
+              />
+            )}
+          </>
         )}
       </main>
-      
-      {/* Auth Modal */}
-      {showAuthModal && (
-        <AuthModal onClose={() => setShowAuthModal(false)} />
-      )}
-      
-      {/* Detail Modal */}
-      {selectedVorgang && (
-        <VorgangDetailModal
-          vorgang={selectedVorgang}
-          onClose={() => setSelectedVorgang(null)}
-          user={user}
-          onVote={handleVote}
-        />
-      )}
     </div>
   );
 }
