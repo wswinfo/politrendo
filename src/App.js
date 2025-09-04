@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { createClient } from '@supabase/supabase-js';
 import { Calendar, MessageCircle, ThumbsUp, ThumbsDown, User, LogIn, LogOut, FileText, Users, Activity, AlertCircle, CheckCircle, XCircle, Send, ChevronRight, Clock, Building, Gavel, ExternalLink, BookOpen, Loader } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import LoginPage from './pages/LoginPage';
+import { supabase } from './lib/supabase';
 
 // Supabase Client Setup
-const supabaseUrl = 'https://oqqmfkqlcdynxgdefzfw.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9xcW1ma3FsY2R5bnhnZGVmemZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI4NDQ3NTYsImV4cCI6MjA2ODQyMDc1Nn0.x_WQb3NjDWl120ZogADav3JfdHORzUWUAxZ1jEkooQk';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const isDev = process.env.NODE_ENV !== 'production';
+const debugLog = (...args) => { if (isDev) console.log(...args); };
 
 // Hauptkomponente
 export default function Politrendo() {
@@ -15,8 +16,10 @@ export default function Politrendo() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [activeView, setActiveView] = useState('timeline');
   const [selectedVorgang, setSelectedVorgang] = useState(null);
-  const [showAuthModal, setShowAuthModal] = useState(false);
   const [filter, setFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sortField, setSortField] = useState('aktualisiert'); // 'aktualisiert' | 'datum'
+  const [sortDir, setSortDir] = useState('desc'); // 'asc' | 'desc'
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(0);
   const observerRef = useRef();
@@ -27,19 +30,22 @@ export default function Politrendo() {
   // Auth State
   useEffect(() => {
     checkUser();
-    loadVorgaenge();
-    
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user || null);
       if (session?.user) {
         loadOrCreateProfile(session.user);
       }
     });
-    
     return () => {
       authListener?.subscription?.unsubscribe();
     };
-  }, [filter]);
+  }, []);
+
+  // Load data only when authenticated and filters/sort change
+  useEffect(() => {
+    if (!user) return;
+    loadVorgaenge();
+  }, [user, filter, statusFilter, sortField, sortDir]);
   
   const checkUser = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -81,19 +87,35 @@ export default function Politrendo() {
       const to = from + PAGE_SIZE - 1;
       
       // DEBUG: Erst mal nur die Basis-Tabelle abfragen
-      console.log('Lade Vorgänge von Supabase...');
-      
+      debugLog('Lade Vorgänge von Supabase...');
+
       // Vereinfachte Query ohne JOINs zum Testen
       let simpleQuery = supabase
         .from('vorgang')
-        .select('*')
-        .order('aktualisiert', { ascending: false })
+        .select('*');
+
+      if (filter === 'gesetzgebung') {
+        simpleQuery = simpleQuery.ilike('vorgangstyp', '%Gesetz%');
+      } else if (filter === 'antrag') {
+        simpleQuery = simpleQuery.ilike('vorgangstyp', '%Antrag%');
+      } else if (filter === 'anfrage') {
+        simpleQuery = simpleQuery.ilike('vorgangstyp', '%Anfrage%');
+      } else if (filter === 'eu') {
+        simpleQuery = simpleQuery.ilike('vorgangstyp', '%EU%');
+      }
+
+      if (statusFilter !== 'all') {
+        simpleQuery = simpleQuery.ilike('beratungsstand', `%${statusFilter}%`);
+      }
+
+      simpleQuery = simpleQuery
+        .order(sortField, { ascending: sortDir === 'asc' })
         .range(from, to);
-      
+
       const { data: simpleData, error: simpleError } = await simpleQuery;
-      
-      console.log('Simple Query Result:', { simpleData, simpleError });
-      
+
+      debugLog('Simple Query Result:', { simpleData, simpleError });
+
       // Falls die einfache Query funktioniert, versuche die komplexe
       if (simpleData && simpleData.length > 0) {
         // Komplexe Query mit JOINs
@@ -110,14 +132,35 @@ export default function Politrendo() {
               vorgangsposition,
               zuordnung,
               gang,
-              aktualisiert
-            )
-          `)
-          .order('aktualisiert', { ascending: false })
+              aktualisiert,
+              vorgangsposition_fundstelle (*),
+              vorgangsposition_ueberweisung (*)
+            ),
+            vorgang_initiative (*),
+            vorgang_sachgebiet (*),
+            vorgang_deskriptor (*)
+          `);
+
+        if (filter === 'gesetzgebung') {
+          query = query.ilike('vorgangstyp', '%Gesetz%');
+        } else if (filter === 'antrag') {
+          query = query.ilike('vorgangstyp', '%Antrag%');
+        } else if (filter === 'anfrage') {
+          query = query.ilike('vorgangstyp', '%Anfrage%');
+        } else if (filter === 'eu') {
+          query = query.ilike('vorgangstyp', '%EU%');
+        }
+
+        if (statusFilter !== "all") {
+          query = query.ilike('beratungsstand', `%${statusFilter}%`);
+        }
+
+        query = query
+          .order(sortField, { ascending: sortDir === 'asc' })
           .range(from, to);
-        
+
         const { data, error } = await query;
-        console.log('Complex Query Result:', { data, error });
+        debugLog('Complex Query Result:', { data, error });
         
         if (error) {
           console.error('Complex query failed, using simple data:', error);
@@ -157,7 +200,7 @@ export default function Politrendo() {
         console.error('Supabase Error:', simpleError);
         throw simpleError;
       } else {
-        console.log('Keine Daten in der Tabelle gefunden');
+        debugLog('Keine Daten in der Tabelle gefunden');
         // Zeige Demo-Daten als Fallback
         const demoData = [
           {
@@ -235,16 +278,22 @@ export default function Politrendo() {
     return () => {
       if (observerRef.current) observerRef.current.disconnect();
     };
-  }, [loading, loadingMore, hasMore]);
+  }, [loading, loadingMore, hasMore, vorgaenge]);
   
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Redirect to home if logged in while on /login
+  useEffect(() => {
+    if (user && location.pathname === '/login') navigate('/');
+  }, [user, location.pathname, navigate]);
+
   const handleVote = async (vorgangId, voteType) => {
     if (!user) {
-      setShowAuthModal(true);
+      navigate('/login');
       return;
     }
-    
-    // Hier könntest du eine eigene Voting-Tabelle für Vorgänge implementieren
-    console.log('Vote for Vorgang:', vorgangId, voteType);
+    debugLog('Vote for Vorgang:', vorgangId, voteType);
   };
   
   return (
@@ -257,28 +306,30 @@ export default function Politrendo() {
               <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                 Politrendo
               </h1>
-              <nav className="hidden md:flex space-x-6">
-                <button
-                  onClick={() => setActiveView('timeline')}
-                  className={`px-3 py-1 rounded-lg transition-colors ${
-                    activeView === 'timeline' 
-                      ? 'bg-blue-100 text-blue-700' 
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  Timeline
-                </button>
-                <button
-                  onClick={() => setActiveView('stats')}
-                  className={`px-3 py-1 rounded-lg transition-colors ${
-                    activeView === 'stats' 
-                      ? 'bg-blue-100 text-blue-700' 
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  Statistiken
-                </button>
-              </nav>
+              {user && (
+                <nav className="hidden md:flex space-x-6">
+                  <button
+                    onClick={() => setActiveView('timeline')}
+                    className={`px-3 py-1 rounded-lg transition-colors ${
+                      activeView === 'timeline'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Timeline
+                  </button>
+                  <button
+                    onClick={() => setActiveView('stats')}
+                    className={`px-3 py-1 rounded-lg transition-colors ${
+                      activeView === 'stats'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Statistiken
+                  </button>
+                </nav>
+              )}
             </div>
             
             <div className="flex items-center space-x-4">
@@ -296,13 +347,13 @@ export default function Politrendo() {
                   </button>
                 </>
               ) : (
-                <button
-                  onClick={() => setShowAuthModal(true)}
+                <Link
+                  to="/login"
                   className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
                 >
                   <LogIn className="h-4 w-4" />
                   <span>Anmelden</span>
-                </button>
+                </Link>
               )}
             </div>
           </div>
@@ -311,55 +362,59 @@ export default function Politrendo() {
       
       {/* Hauptinhalt */}
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* Stats Banner */}
-        {activeView === 'stats' && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-            <div className="bg-white rounded-xl p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Aktive Vorgänge</p>
-                  <p className="text-2xl font-bold">{vorgaenge.length}</p>
+        {!user ? (
+          <LoginPage />
+        ) : (
+          <>
+            {/* Stats Banner */}
+            {activeView === 'stats' && (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                <div className="bg-white rounded-xl p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600">Aktive Vorgänge</p>
+                      <p className="text-2xl font-bold">{vorgaenge.length}</p>
+                    </div>
+                    <Activity className="h-8 w-8 text-blue-500" />
+                  </div>
                 </div>
-                <Activity className="h-8 w-8 text-blue-500" />
-              </div>
-            </div>
-            <div className="bg-white rounded-xl p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Gesetzgebung</p>
-                  <p className="text-2xl font-bold">
-                    {vorgaenge.filter(v => v.vorgangstyp === 'Gesetzgebung').length}
-                  </p>
+                <div className="bg-white rounded-xl p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600">Gesetzgebung</p>
+                      <p className="text-2xl font-bold">
+                        {vorgaenge.filter(v => v.vorgangstyp === 'Gesetzgebung').length}
+                      </p>
+                    </div>
+                    <Gavel className="h-8 w-8 text-purple-500" />
+                  </div>
                 </div>
-                <Gavel className="h-8 w-8 text-purple-500" />
-              </div>
-            </div>
-            <div className="bg-white rounded-xl p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Anträge</p>
-                  <p className="text-2xl font-bold">
-                    {vorgaenge.filter(v => v.vorgangstyp?.includes('Antrag')).length}
-                  </p>
+                <div className="bg-white rounded-xl p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600">Anträge</p>
+                      <p className="text-2xl font-bold">
+                        {vorgaenge.filter(v => v.vorgangstyp?.includes('Antrag')).length}
+                      </p>
+                    </div>
+                    <FileText className="h-8 w-8 text-green-500" />
+                  </div>
                 </div>
-                <FileText className="h-8 w-8 text-green-500" />
-              </div>
-            </div>
-            <div className="bg-white rounded-xl p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Wahlperiode</p>
-                  <p className="text-2xl font-bold">20</p>
+                <div className="bg-white rounded-xl p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600">Wahlperiode</p>
+                      <p className="text-2xl font-bold">20</p>
+                    </div>
+                    <Building className="h-8 w-8 text-orange-500" />
+                  </div>
                 </div>
-                <Building className="h-8 w-8 text-orange-500" />
               </div>
-            </div>
-          </div>
-        )}
-        
-        {/* Filter Bar */}
-        <div className="mb-6 flex flex-wrap items-center gap-2">
-          <span className="text-sm text-gray-600 mr-2">Filter:</span>
+            )}
+
+            {/* Filter Bar */}
+            <div className="mb-6 flex flex-wrap items-center gap-3">
+          <span className="text-sm text-gray-600 mr-2">Typ:</span>
           {['all', 'gesetzgebung', 'antrag', 'anfrage', 'eu'].map(filterType => (
             <button
               key={filterType}
@@ -375,76 +430,118 @@ export default function Politrendo() {
                   : 'bg-white text-gray-700 hover:bg-gray-100'
               }`}
             >
-              {filterType === 'all' ? 'Alle' : 
+              {filterType === 'all' ? 'Alle' :
                filterType === 'gesetzgebung' ? 'Gesetzgebung' :
                filterType === 'antrag' ? 'Anträge' :
                filterType === 'anfrage' ? 'Anfragen' : 'EU-Vorlagen'}
             </button>
           ))}
-        </div>
-        
-        {/* Timeline/Content */}
-        {loading && vorgaenge.length === 0 ? (
-          <div className="flex justify-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+
+          <span className="text-sm text-gray-600 ml-4">Status:</span>
+          {[
+            { key: 'all', label: 'Alle' },
+            { key: 'Beschlossen', label: 'Beschlossen' },
+            { key: 'Beratung', label: 'In Beratung' },
+            { key: 'Überwiesen', label: 'Überwiesen' },
+            { key: 'Erledigt', label: 'Erledigt' },
+            { key: 'Abgelehnt', label: 'Abgelehnt' },
+          ].map(s => (
+            <button
+              key={s.key}
+              onClick={() => {
+                setStatusFilter(s.key);
+                setVorgaenge([]);
+                setPage(0);
+                setHasMore(true);
+              }}
+              className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                statusFilter === s.key
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+
+          <span className="text-sm text-gray-600 ml-4">Sortieren:</span>
+          <div className="flex items-center gap-2">
+            <select
+              value={sortField}
+              onChange={(e) => { setSortField(e.target.value); setVorgaenge([]); setPage(0); setHasMore(true); }}
+              className="px-2 py-1 text-sm border rounded-lg bg-white"
+            >
+              <option value="aktualisiert">Aktualisiert</option>
+              <option value="datum">Datum</option>
+            </select>
+            <button
+              onClick={() => { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); setVorgaenge([]); setPage(0); setHasMore(true); }}
+              className="px-3 py-1 rounded-lg text-sm bg-white text-gray-700 hover:bg-gray-100"
+            >
+              {sortDir === 'asc' ? 'Aufsteigend' : 'Absteigend'}
+            </button>
           </div>
-        ) : (
-          <div className="space-y-6">
-            {vorgaenge.length === 0 ? (
-              <div className="text-center py-12 bg-white rounded-xl">
-                <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600">Keine Vorgänge gefunden.</p>
+        </div>
+
+            {/* Timeline/Content */}
+            {loading && vorgaenge.length === 0 ? (
+              <div className="flex justify-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
               </div>
             ) : (
-              <>
-                {vorgaenge.map((vorgang, index) => {
-                  const isLast = index === vorgaenge.length - 1;
-                  return (
-                    <div
-                      key={vorgang.id}
-                      ref={isLast ? lastVorgangElementRef : null}
-                    >
-                      <VorgangCard
-                        vorgang={vorgang}
-                        onVote={handleVote}
-                        onSelect={() => setSelectedVorgang(vorgang)}
-                        user={user}
-                      />
-                    </div>
-                  );
-                })}
-                
-                {loadingMore && (
-                  <div className="flex justify-center py-8">
-                    <Loader className="h-8 w-8 animate-spin text-blue-600" />
+              <div className="space-y-6">
+                {vorgaenge.length === 0 ? (
+                  <div className="text-center py-12 bg-white rounded-xl">
+                    <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-600">Keine Vorgänge gefunden.</p>
                   </div>
+                ) : (
+                  <>
+                    {vorgaenge.map((vorgang, index) => {
+                      const isLast = index === vorgaenge.length - 1;
+                      return (
+                        <div
+                          key={vorgang.id}
+                          ref={isLast ? lastVorgangElementRef : null}
+                        >
+                          <VorgangCard
+                            vorgang={vorgang}
+                            onVote={handleVote}
+                            onSelect={() => setSelectedVorgang(vorgang)}
+                            user={user}
+                          />
+                        </div>
+                      );
+                    })}
+
+                    {loadingMore && (
+                      <div className="flex justify-center py-8">
+                        <Loader className="h-8 w-8 animate-spin text-blue-600" />
+                      </div>
+                    )}
+
+                    {!hasMore && vorgaenge.length > 0 && (
+                      <div className="text-center py-4 text-gray-500">
+                        Keine weiteren Vorgänge
+                      </div>
+                    )}
+                  </>
                 )}
-                
-                {!hasMore && vorgaenge.length > 0 && (
-                  <div className="text-center py-4 text-gray-500">
-                    Keine weiteren Vorgänge
-                  </div>
-                )}
-              </>
+              </div>
             )}
-          </div>
+
+            {/* Detail Modal */}
+            {selectedVorgang && (
+              <VorgangDetailModal
+                vorgang={selectedVorgang}
+                onClose={() => setSelectedVorgang(null)}
+                user={user}
+                onVote={handleVote}
+              />
+            )}
+          </>
         )}
       </main>
-      
-      {/* Auth Modal */}
-      {showAuthModal && (
-        <AuthModal onClose={() => setShowAuthModal(false)} />
-      )}
-      
-      {/* Detail Modal */}
-      {selectedVorgang && (
-        <VorgangDetailModal
-          vorgang={selectedVorgang}
-          onClose={() => setSelectedVorgang(null)}
-          user={user}
-          onVote={handleVote}
-        />
-      )}
     </div>
   );
 }
