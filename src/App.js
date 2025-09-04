@@ -17,6 +17,9 @@ export default function Politrendo() {
   const [activeView, setActiveView] = useState('timeline');
   const [selectedVorgang, setSelectedVorgang] = useState(null);
   const [filter, setFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sortField, setSortField] = useState('aktualisiert'); // 'aktualisiert' | 'datum'
+  const [sortDir, setSortDir] = useState('desc'); // 'asc' | 'desc'
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(0);
   const observerRef = useRef();
@@ -38,11 +41,11 @@ export default function Politrendo() {
     };
   }, []);
 
-  // Load data only when authenticated and filter changes
+  // Load data only when authenticated and filters/sort change
   useEffect(() => {
     if (!user) return;
     loadVorgaenge();
-  }, [user, filter]);
+  }, [user, filter, statusFilter, sortField, sortDir]);
   
   const checkUser = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -101,8 +104,12 @@ export default function Politrendo() {
         simpleQuery = simpleQuery.ilike('vorgangstyp', '%EU%');
       }
 
+      if (statusFilter !== 'all') {
+        simpleQuery = simpleQuery.ilike('beratungsstand', `%${statusFilter}%`);
+      }
+
       simpleQuery = simpleQuery
-        .order('aktualisiert', { ascending: false })
+        .order(sortField, { ascending: sortDir === 'asc' })
         .range(from, to);
 
       const { data: simpleData, error: simpleError } = await simpleQuery;
@@ -144,8 +151,12 @@ export default function Politrendo() {
           query = query.ilike('vorgangstyp', '%EU%');
         }
 
+        if (statusFilter !== "all") {
+          query = query.ilike('beratungsstand', `%${statusFilter}%`);
+        }
+
         query = query
-          .order('aktualisiert', { ascending: false })
+          .order(sortField, { ascending: sortDir === 'asc' })
           .range(from, to);
 
         const { data, error } = await query;
@@ -402,30 +413,75 @@ export default function Politrendo() {
             )}
 
             {/* Filter Bar */}
-            <div className="mb-6 flex flex-wrap items-center gap-2">
-              <span className="text-sm text-gray-600 mr-2">Filter:</span>
-              {['all', 'gesetzgebung', 'antrag', 'anfrage', 'eu'].map(filterType => (
-                <button
-                  key={filterType}
-                  onClick={() => {
-                    setFilter(filterType);
-                    setVorgaenge([]);
-                    setPage(0);
-                    setHasMore(true);
-                  }}
-                  className={`px-3 py-1 rounded-full text-sm transition-colors ${
-                    filter === filterType
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-white text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  {filterType === 'all' ? 'Alle' :
-                   filterType === 'gesetzgebung' ? 'Gesetzgebung' :
-                   filterType === 'antrag' ? 'Anträge' :
-                   filterType === 'anfrage' ? 'Anfragen' : 'EU-Vorlagen'}
-                </button>
-              ))}
-            </div>
+            <div className="mb-6 flex flex-wrap items-center gap-3">
+          <span className="text-sm text-gray-600 mr-2">Typ:</span>
+          {['all', 'gesetzgebung', 'antrag', 'anfrage', 'eu'].map(filterType => (
+            <button
+              key={filterType}
+              onClick={() => {
+                setFilter(filterType);
+                setVorgaenge([]);
+                setPage(0);
+                setHasMore(true);
+              }}
+              className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                filter === filterType
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              {filterType === 'all' ? 'Alle' :
+               filterType === 'gesetzgebung' ? 'Gesetzgebung' :
+               filterType === 'antrag' ? 'Anträge' :
+               filterType === 'anfrage' ? 'Anfragen' : 'EU-Vorlagen'}
+            </button>
+          ))}
+
+          <span className="text-sm text-gray-600 ml-4">Status:</span>
+          {[
+            { key: 'all', label: 'Alle' },
+            { key: 'Beschlossen', label: 'Beschlossen' },
+            { key: 'Beratung', label: 'In Beratung' },
+            { key: 'Überwiesen', label: 'Überwiesen' },
+            { key: 'Erledigt', label: 'Erledigt' },
+            { key: 'Abgelehnt', label: 'Abgelehnt' },
+          ].map(s => (
+            <button
+              key={s.key}
+              onClick={() => {
+                setStatusFilter(s.key);
+                setVorgaenge([]);
+                setPage(0);
+                setHasMore(true);
+              }}
+              className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                statusFilter === s.key
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+
+          <span className="text-sm text-gray-600 ml-4">Sortieren:</span>
+          <div className="flex items-center gap-2">
+            <select
+              value={sortField}
+              onChange={(e) => { setSortField(e.target.value); setVorgaenge([]); setPage(0); setHasMore(true); }}
+              className="px-2 py-1 text-sm border rounded-lg bg-white"
+            >
+              <option value="aktualisiert">Aktualisiert</option>
+              <option value="datum">Datum</option>
+            </select>
+            <button
+              onClick={() => { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); setVorgaenge([]); setPage(0); setHasMore(true); }}
+              className="px-3 py-1 rounded-lg text-sm bg-white text-gray-700 hover:bg-gray-100"
+            >
+              {sortDir === 'asc' ? 'Aufsteigend' : 'Absteigend'}
+            </button>
+          </div>
+        </div>
 
             {/* Timeline/Content */}
             {loading && vorgaenge.length === 0 ? (
